@@ -1,0 +1,363 @@
+#ifndef GAME_H
+#define GAME_H
+
+/*
+ * ============================================================
+ *  口袋冒险 - Pocket Adventure
+ * ------------------------------------------------------------
+ *  一个类口袋妖怪的 RPG 小游戏 (C 语言 + Win32 API + GDI)
+ *
+ *  玩法:
+ *    操控小人在大地图上走动, 在草丛中遭遇野生精灵,
+ *    进入回合制战斗, 通过 攻击/防御/逃跑 战胜对手并成长.
+ *
+ *  编译环境: Visual Studio 2022
+ * ============================================================
+ */
+
+#define _CRT_SECURE_NO_WARNINGS
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <windowsx.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include <time.h>
+#include <math.h>
+
+/* ============================================================
+ *  窗口
+ * ============================================================ */
+#define WINDOW_WIDTH       960
+#define WINDOW_HEIGHT      640
+#define WINDOW_TITLE       L"勇者冒险 - Hero's Adventure"
+
+#define FRAME_TIMER_ID     1
+#define FRAME_INTERVAL_MS  16
+
+/* ============================================================
+ *  通用
+ * ============================================================ */
+#define MAX_NAME_LEN       32
+#define MAX_LOG_LINES      100
+#define MAX_LOG_LEN        128
+#define LOG_VISIBLE        4
+
+/* ============================================================
+ *  战斗数值
+ * ============================================================ */
+#define BASE_DAMAGE_MIN    8
+#define BASE_DAMAGE_MAX    18
+#define CRIT_RATE          20          /* 暴击率 % */
+#define CRIT_MULTIPLIER    2.0f
+#define DODGE_RATE         12          /* 闪避率 % */
+#define BLOCK_RATE         15          /* 格挡率 % */
+#define BLOCK_REDUCE       0.60f
+#define COUNTER_RATE       25
+#define COUNTER_MULT       1.50f
+#define DEFEND_REDUCE      0.65f       /* 防御减伤 */
+#define DEFEND_COUNTER     0.25f       /* 防御反击比例 */
+#define FLEE_BASE_CHANCE   55
+#define FLEE_HP_BONUS      30
+#define FLEE_FAIL_PENALTY  0.50f
+#define BOSS_FLEE_PENALTY  35          /* 训练家战逃跑惩罚 % */
+
+/* ============================================================
+ *  战斗动画时长(秒)
+ * ============================================================ */
+#define TIME_SWING         0.18f
+#define TIME_IMPACT        0.22f
+#define TIME_RETURN        0.25f
+#define TIME_MESSAGE       0.75f
+#define TIME_ENEMY_THINK   0.45f
+
+/* ============================================================
+ *  战斗画面布局
+ * ============================================================ */
+#define HUD_HEIGHT         110.0f
+#define UI_TOP             474.0f
+#define GROUND_Y           452.0f
+#define FIGHTER_W          72.0f
+#define FIGHTER_H          72.0f
+#define PLAYER_START_X     200.0f
+#define ENEMY_START_X      688.0f
+
+/* ============================================================
+ *  颜色
+ * ============================================================ */
+#define COLOR_BG_TOP       RGB(24, 26, 42)
+#define COLOR_BG_BOTTOM    RGB(58, 40, 64)
+#define COLOR_GROUND       RGB(46, 36, 56)
+#define COLOR_PANEL        RGB(32, 34, 52)
+#define COLOR_TEXT         RGB(232, 236, 248)
+#define COLOR_TEXT_DIM     RGB(140, 148, 172)
+#define COLOR_ACCENT       RGB(255, 176, 64)
+#define COLOR_HP_FULL      RGB(88, 220, 128)
+#define COLOR_HP_MID       RGB(240, 196, 64)
+#define COLOR_HP_LOW       RGB(232, 72, 72)
+#define COLOR_HP_BG        RGB(40, 42, 58)
+#define COLOR_CRIT         RGB(255, 212, 72)
+#define COLOR_BLOCK        RGB(120, 200, 255)
+#define COLOR_MISS         RGB(180, 188, 204)
+#define COLOR_HEAL         RGB(110, 230, 150)
+#define COLOR_HERO         RGB(88, 168, 255)
+#define COLOR_HERO_DARK    RGB(48, 106, 178)
+#define COLOR_SKIN         RGB(252, 214, 178)
+#define COLOR_SKIN_DARK    RGB(214, 174, 140)
+
+/* ============================================================
+ *  数学 / 随机
+ * ============================================================ */
+int   rand_range(int min, int max);
+float rand_float(void);
+int   roll_percent(int percent);
+float clampf(float v, float lo, float hi);
+float lerpf(float a, float b, float t);
+
+/* ============================================================
+ *  GDI 绘图基础 (render.c)
+ * ============================================================ */
+
+/* 释放绘图缓存 (画刷 / 字体 / 渐变位图), 程序退出前调用 */
+void  render_release_caches(void);
+void  render_release_gradients(void);
+
+void  fill_rect(HDC hdc, float x, float y, float w, float h, COLORREF c);
+void  fill_rect_alpha(HDC hdc, float x, float y, float w, float h,
+                      COLORREF c, int alpha);
+void  fill_round_rect(HDC hdc, float x, float y, float w, float h,
+                      float radius, COLORREF c);
+void  draw_text(HDC hdc, float x, float y, const char *text,
+                COLORREF color, int size, int bold, int align);
+void  draw_text_wide(HDC hdc, float x, float y, const wchar_t *text,
+                     COLORREF color, int size, int bold, int align);
+float text_width(HDC hdc, const char *text, int size, int bold);
+void  draw_hp_bar(HDC hdc, float x, float y, float w, float h,
+                  int hp, int maxHp);
+
+/* ---- 美术增强工具 (render.c) ---- */
+/* 垂直渐变矩形 */
+void  fill_grad_rect(HDC hdc, float x, float y, float w, float h,
+                     COLORREF top, COLORREF bottom);
+/* 带描边的面板: 投影 + 填充 + 外框 + 顶部高光 */
+void  fill_panel(HDC hdc, float x, float y, float w, float h,
+                 float radius, COLORREF fill, COLORREF border);
+/* 带描边的实心圆 (用于角色/装饰, 提升可读性) */
+void  fill_circle_out(HDC hdc, float cx, float cy, float r,
+                      COLORREF fill, COLORREF outline, float outlineW);
+/* 带描边的圆角矩形 */
+void  fill_round_rect_out(HDC hdc, float x, float y, float w, float h,
+                          float radius, COLORREF fill, COLORREF outline);
+/* 文字 + 深色投影 */
+void  draw_text_sh(HDC hdc, float x, float y, const char *text,
+                   COLORREF color, int size, int bold, int align);
+/* 颜色工具 */
+COLORREF color_lerp(COLORREF a, COLORREF b, float t);
+COLORREF color_shade(COLORREF c, float k);
+int   draw_text_wrap(HDC hdc, float x, float y, float maxW, const char *text,
+                     COLORREF color, int size, int lineHeight, int maxLines);
+
+/* ============================================================
+ *  场景
+ * ============================================================ */
+typedef enum {
+    SCENE_TITLE = 0,      /* 标题画面 */
+    SCENE_OVERWORLD,      /* 大地图探索 */
+    SCENE_BATTLE          /* 战斗 */
+} Scene;
+
+extern Scene g_scene;
+
+/* 标题画面是否处于"覆盖存档"确认状态 (0=正常 1=确认) */
+extern int g_titleConfirm;
+
+/* ============================================================
+ *  属性 / 角色
+ * ============================================================ */
+typedef struct {
+    int hp;
+    int maxHp;
+    int atk;
+    int def;
+    int speed;
+} Stats;
+
+typedef struct {
+    char     name[MAX_NAME_LEN];
+    Stats    stats;
+    int      alive;
+    int      isPlayer;         /* 1=玩家 0=电脑 */
+    int      defending;
+    COLORREF color;            /* 主体颜色 */
+
+    /* 战斗动画 */
+    float    x, y;
+    float    baseX, baseY;
+    float    offsetX;
+    float    shakeTimer;
+    float    flashTimer;
+    float    defendGlow;
+    float    bobPhase;
+
+    /* 统计 */
+    int      totalDamageDealt;
+    int      totalDamageTaken;
+    int      hits;
+    int      crits;
+    int      blocks;
+    int      dodges;
+} Fighter;
+
+/* ============================================================
+ *  敌人种类 (野外怪物 / 挑战者)
+ * ============================================================ */
+typedef struct {
+    const char *name;
+    int         hp, atk, def, speed;
+    int         exp;           /* 战胜后获得经验 */
+    int         gold;          /* 战胜后获得金币 */
+    COLORREF    color;
+} EnemyType;
+
+const EnemyType *enemy_get(int index);
+int              enemy_count(void);
+void             enemy_make(int index, int level, Fighter *out);
+
+/* 角色操作 */
+void  fighter_init(Fighter *f, const char *name, int isPlayer,
+                   int maxHp, int atk, int def, int speed);
+int   fighter_is_alive(const Fighter *f);
+void  fighter_reset_anim(Fighter *f);
+void  fighter_update(Fighter *f, float dt);
+
+/* ============================================================
+ *  战斗日志
+ * ============================================================ */
+typedef struct {
+    char lines[MAX_LOG_LINES][MAX_LOG_LEN];
+    int  count;
+} BattleLog;
+
+void  log_init(BattleLog *log);
+void  log_add(BattleLog *log, const char *fmt, ...);
+
+/* ============================================================
+ *  特效
+ * ============================================================ */
+typedef struct {
+    float    x, y;
+    float    vy;
+    float    life, maxLife;
+    char     text[40];
+    COLORREF color;
+    int      big;
+} FloatText;
+
+typedef struct {
+    float    x, y;
+    float    vx, vy;
+    float    life;
+    COLORREF color;
+    int      active;
+} Particle;
+
+#define MAX_FLOATS     24
+#define MAX_PARTICLES  64
+
+void  floats_clear(void);
+void  float_add(float x, float y, COLORREF color, int big,
+                const char *fmt, ...);
+void  floats_update(float dt);
+void  particles_clear(void);
+void  particles_burst(float x, float y, COLORREF color, int count);
+void  particles_update(float dt);
+
+/* ============================================================
+ *  战斗
+ * ============================================================ */
+typedef enum {
+    ACTION_NONE = 0,
+    ACTION_ATTACK,
+    ACTION_DEFEND,
+    ACTION_FLEE
+} Action;
+
+typedef enum {
+    HIT_NORMAL = 0,
+    HIT_CRIT,
+    HIT_BLOCKED,
+    HIT_DODGED,
+    HIT_DEFENDED,
+    HIT_COUNTER
+} HitResult;
+
+typedef enum {
+    PHASE_PLAYER_TURN = 0,
+    PHASE_RESOLVE,
+    PHASE_ENEMY_TURN,
+    PHASE_WIN,
+    PHASE_LOSE,
+    PHASE_FLED
+} BattlePhase;
+
+typedef struct {
+    BattlePhase phase;
+    Fighter     player;
+    Fighter     enemy;
+
+    Action      playerAction;
+    Action      enemyAction;
+    int         playerActed;
+    int         enemyActed;
+    int         round;
+
+    /* 动画状态机 */
+    float       animTimer;
+    int         animStage;      /* 0=挥击 1=命中 2=归位 */
+    Fighter    *attacker;
+    Fighter    *defender;
+
+    /* 特效 */
+    FloatText   floats[MAX_FLOATS];
+    int         floatCount;
+    Particle    particles[MAX_PARTICLES];
+    BattleLog   log;
+
+    /* 战斗结果 */
+    int         isBoss;         /* 挑战者战 (非野生) */
+    int         foeNpcIdx;      /* 对应的大地图 NPC 索引, -1 表示野生 */
+    int         expReward;
+    int         goldReward;
+    int         rewardGiven;
+    char        foeLabel[MAX_NAME_LEN];
+
+    /* 鼠标 */
+    int         mouseX, mouseY;
+    int         mouseDown;
+
+    float       totalTime;
+} Game;
+
+extern Game g_game;
+
+void  game_init(void);
+void  game_start_battle(int enemyIndex, int isBoss, const char *foeName);
+void  game_player_choose(Action a);
+void  game_update(float dt);
+int   calc_damage(const Fighter *attacker, const Fighter *defender,
+                  int *isCrit, int *isBlocked, float extraReduce);
+
+/* ============================================================
+ *  战斗渲染 (render.c)
+ * ============================================================ */
+void  render_title(HDC hdc);
+void  render_battle(HDC hdc);
+void  render_battle_overlay(HDC hdc);
+
+/* ---- 标题画面按钮命中检测 (render.c 定义, main.c 使用) ---- */
+int   title_hit_continue(int px, int py);       /* 继续冒险 */
+int   title_hit_new(int px, int py);            /* 新的冒险 */
+int   title_hit_confirm_ok(int px, int py);     /* 确认覆盖 */
+int   title_hit_confirm_cancel(int px, int py); /* 取消 */
+
+#endif /* GAME_H */
